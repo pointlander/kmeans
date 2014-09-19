@@ -1,6 +1,11 @@
 package kmeans
 
 import (
+	"bytes"
+	//"code.google.com/p/lzma"
+	"encoding/binary"
+	"fmt"
+	"github.com/pointlander/compress"
 	"math"
 	"math/rand"
 )
@@ -146,6 +151,196 @@ func Kmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thres
 	}
 	seeds := seed(data, k, distanceFunction)
 	clusteredData, err := kmeans(data, seeds, distanceFunction, threshold)
+	labels := make([]int, len(clusteredData))
+	for ii, jj := range clusteredData {
+		labels[ii] = jj.ClusterNumber
+	}
+	return labels, err
+}
+
+func KCmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, threshold int) ([]int, []Observation, error) {
+	var minClusteredData []ClusteredObservation
+	var means []Observation
+	var err error
+	min := int64(math.MaxInt64)
+	for clusters := 1; clusters <= k; clusters++ {
+		data := make([]ClusteredObservation, len(rawData))
+		for ii, jj := range rawData {
+			data[ii].Observation = jj
+		}
+		seeds := seed(data, clusters, distanceFunction)
+		clusteredData, _ := kmeans(data, seeds, distanceFunction, threshold)
+
+		counts := make([]int, clusters)
+		for _, jj := range clusteredData {
+			counts[jj.ClusterNumber]++
+		}
+
+		input := &bytes.Buffer{}
+		for c := 0; c < clusters; c++ {
+			err := binary.Write(input, binary.LittleEndian, rand.Float64())
+			if err != nil {
+				panic(err)
+			}
+
+			err = binary.Write(input, binary.LittleEndian, int64(counts[c]))
+			if err != nil {
+				panic(err)
+			}
+
+			for _, jj := range seeds[c] {
+				err = binary.Write(input, binary.LittleEndian, jj)
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			for _, j := range clusteredData {
+				if j.ClusterNumber == c {
+					/*distance, _ := distanceFunction(j.Observation, seeds[c])
+					err = binary.Write(input, binary.LittleEndian, math.Pow(math.E, distance) * rand.Float64())
+					if err != nil {
+						panic(err)
+					}*/
+
+					for ii, jj := range j.Observation {
+						err = binary.Write(input, binary.LittleEndian, jj - seeds[c][ii])
+						if err != nil {
+							panic(err)
+						}
+					}
+
+					for ii, jj := range j.Observation {
+						err = binary.Write(input, binary.LittleEndian, math.Pow(math.E, jj - seeds[c][ii]) * rand.Float64())
+						if err != nil {
+							panic(err)
+						}
+					}
+				}
+			}
+		}
+
+		in, output := make(chan []byte, 1), &bytes.Buffer{}
+		in <- input.Bytes()
+		close(in)
+		compress.BijectiveBurrowsWheelerCoder(in).MoveToFrontRunLengthCoder().AdaptiveCoder().Code(output)
+
+		/*output := &bytes.Buffer{}
+		writer := lzma.NewWriterLevel(output, lzma.BestCompression)
+		writer.Write(input.Bytes())
+		writer.Close()*/
+
+		complexity := int64(output.Len())
+		fmt.Printf("%v %v\n", clusters, complexity)
+		if complexity < min {
+			min, minClusteredData, means = complexity, clusteredData, make([]Observation, len(seeds))
+			for ii := range seeds {
+				means[ii] = make([]float64, len(seeds[ii]))
+				for jj := range seeds[ii] {
+					means[ii][jj] = seeds[ii][jj]
+				}
+			}
+		}
+	}
+
+	labels := make([]int, len(minClusteredData))
+	for ii, jj := range minClusteredData {
+		labels[ii] = jj.ClusterNumber
+	}
+	return labels, means, err
+}
+
+func KCSmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, threshold int) ([]int, error) {
+	var clusteredData []ClusteredObservation
+	var err error
+	for clusters := 1; clusters <= k; clusters++ {
+		data := make([]ClusteredObservation, len(rawData))
+		for ii, jj := range rawData {
+			data[ii].Observation = jj
+		}
+		seeds := seed(data, clusters, distanceFunction)
+		clusteredData, err = kmeans(data, seeds, distanceFunction, threshold)
+
+		counts := make([]int, clusters)
+		for _, jj := range clusteredData {
+			counts[jj.ClusterNumber]++
+		}
+
+		input, width := &bytes.Buffer{}, len(seeds[0])
+		x := make([]float64, width)
+		for c := 0; c < clusters; c++ {
+			err := binary.Write(input, binary.LittleEndian, rand.Float64())
+			if err != nil {
+				panic(err)
+			}
+			err = binary.Write(input, binary.LittleEndian, int64(counts[c]))
+			if err != nil {
+				panic(err)
+			}
+			for _, jj := range seeds[c] {
+				err = binary.Write(input, binary.LittleEndian, jj)
+				if err != nil {
+					panic(err)
+				}
+			}
+			for _, j := range clusteredData {
+				if j.ClusterNumber == c {
+					/*distance, _ := distanceFunction(j.Observation, seeds[c])
+					err = binary.Write(input, binary.LittleEndian, distance)
+					if err != nil {
+						panic(err)
+					}*/
+
+					for ii, jj := range j.Observation {
+						x[ii] = jj - seeds[c][ii]
+					}
+
+					if width == 1 {
+						err = binary.Write(input, binary.LittleEndian, x[0])
+						if err != nil {
+							panic(err)
+						}
+					} else {
+						r := 0.0
+						for _, i := range x {
+							r += i * i
+						}
+						err = binary.Write(input, binary.LittleEndian, math.Sqrt(r))
+						if err != nil {
+							panic(err)
+						}
+
+						t := math.Acos(x[1]/math.Sqrt(x[0]*x[0]+x[1]*x[1]))
+						if t < 0 {
+							t = 2 * math.Pi - t
+						}
+						err = binary.Write(input, binary.LittleEndian, t)
+						if err != nil {
+							panic(err)
+						}
+
+						for i := 2; i < width; i++ {
+							r = 0.0
+							for _, j := range x[:i + 1] {
+								r += j * j
+							}
+							err = binary.Write(input, binary.LittleEndian, math.Acos(x[i]/math.Sqrt(r)))
+							if err != nil {
+								panic(err)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		in, output := make(chan []byte, 1), &bytes.Buffer{}
+		in <- input.Bytes()
+		close(in)
+		compress.BijectiveBurrowsWheelerCoder(in).MoveToFrontRunLengthCoder().AdaptiveCoder().Code(output)
+		fmt.Printf("%v %v\n", clusters, output.Len())
+	}
+
 	labels := make([]int, len(clusteredData))
 	for ii, jj := range clusteredData {
 		labels[ii] = jj.ClusterNumber
