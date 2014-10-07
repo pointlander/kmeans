@@ -3,10 +3,16 @@ package kmeans
 import (
 	"bytes"
 	//"code.google.com/p/lzma"
+	"code.google.com/p/plotinum/plot"
+	"code.google.com/p/plotinum/plotter"
+	"code.google.com/p/plotinum/vg"
 	"encoding/binary"
 	"fmt"
+	"github.com/mjibson/go-dsp/fft"
 	"github.com/pointlander/compress"
+	"image/color"
 	"math"
+	"math/cmplx"
 	"math/rand"
 )
 
@@ -144,7 +150,7 @@ func kmeans(data []ClusteredObservation, mean []Observation, distanceFunction Di
 
 // K-Means Algorithm with smart seeds
 // as known as K-Means ++
-func Kmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, threshold int) ([]int, error) {
+func Kmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, threshold int) ([]int, []Observation, error) {
 	data := make([]ClusteredObservation, len(rawData))
 	for ii, jj := range rawData {
 		data[ii].Observation = jj
@@ -155,10 +161,10 @@ func Kmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thres
 	for ii, jj := range clusteredData {
 		labels[ii] = jj.ClusterNumber
 	}
-	return labels, err
+	return labels, seeds, err
 }
 
-func KCmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, threshold int) ([]int, []Observation, error) {
+func KCmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, threshold, gain int) ([]int, []Observation, error) {
 	var minClusteredData []ClusteredObservation
 	var means []Observation
 	var err error
@@ -197,12 +203,6 @@ func KCmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thre
 
 			for _, j := range clusteredData {
 				if j.ClusterNumber == c {
-					/*distance, _ := distanceFunction(j.Observation, seeds[c])
-					err = binary.Write(input, binary.LittleEndian, math.Pow(math.E, distance) * rand.Float64())
-					if err != nil {
-						panic(err)
-					}*/
-
 					for ii, jj := range j.Observation {
 						err = binary.Write(input, binary.LittleEndian, jj - seeds[c][ii])
 						if err != nil {
@@ -211,9 +211,12 @@ func KCmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thre
 					}
 
 					for ii, jj := range j.Observation {
-						err = binary.Write(input, binary.LittleEndian, math.Pow(math.E, jj - seeds[c][ii]) * rand.Float64())
-						if err != nil {
-							panic(err)
+						x := math.Exp(jj - seeds[c][ii])
+						for i := 0; i < gain; i++ {
+							err = binary.Write(input, binary.LittleEndian, x * rand.Float64())
+							if err != nil {
+								panic(err)
+							}
 						}
 					}
 				}
@@ -241,6 +244,150 @@ func KCmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thre
 				}
 			}
 		}
+	}
+
+	labels := make([]int, len(minClusteredData))
+	for ii, jj := range minClusteredData {
+		labels[ii] = jj.ClusterNumber
+	}
+	return labels, means, err
+}
+
+func KCMmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, threshold int) ([]int, []Observation, error) {
+	var minClusteredData []ClusteredObservation
+	var means []Observation
+	var err error
+	max, trace := int64(0), make([]float64, k)
+	for clusters := 1; clusters <= k; clusters++ {
+		data := make([]ClusteredObservation, len(rawData))
+		for ii, jj := range rawData {
+			data[ii].Observation = jj
+		}
+		seeds := seed(data, clusters, distanceFunction)
+		clusteredData, _ := kmeans(data, seeds, distanceFunction, threshold)
+
+		counts := make([]int, clusters)
+		for _, jj := range clusteredData {
+			counts[jj.ClusterNumber]++
+		}
+
+		input := &bytes.Buffer{}
+		for c := 0; c < clusters; c++ {
+			/*err := binary.Write(input, binary.LittleEndian, rand.Float64())
+			if err != nil {
+				panic(err)
+			}*/
+
+			err := binary.Write(input, binary.LittleEndian, int64(counts[c]))
+			if err != nil {
+				panic(err)
+			}
+
+			for _, jj := range seeds[c] {
+				err = binary.Write(input, binary.LittleEndian, jj)
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			for _, j := range clusteredData {
+				if j.ClusterNumber == c {
+					for ii, jj := range j.Observation {
+						err = binary.Write(input, binary.LittleEndian, jj - seeds[c][ii])
+						if err != nil {
+							panic(err)
+						}
+					}
+				}
+			}
+		}
+
+		in, output := make(chan []byte, 1), &bytes.Buffer{}
+		in <- input.Bytes()
+		close(in)
+		compress.BijectiveBurrowsWheelerCoder(in).MoveToFrontRunLengthCoder().AdaptiveCoder().Code(output)
+
+		/*output := &bytes.Buffer{}
+		writer := lzma.NewWriterLevel(output, lzma.BestCompression)
+		writer.Write(input.Bytes())
+		writer.Close()*/
+
+		complexity := int64(output.Len())
+		trace[clusters - 1] = float64(complexity)
+		fmt.Printf("%v %v\n", clusters, complexity)
+		if complexity > max {
+			max, minClusteredData, means = complexity, clusteredData, make([]Observation, len(seeds))
+			for ii := range seeds {
+				means[ii] = make([]float64, len(seeds[ii]))
+				for jj := range seeds[ii] {
+					means[ii][jj] = seeds[ii][jj]
+				}
+			}
+		}
+	}
+
+	f := fft.FFTReal(trace)
+	points, phase, complex := make(plotter.XYs, len(f) - 1), make(plotter.XYs, len(f) - 1), make(plotter.XYs, len(f))
+	for i, j := range f[1:] {
+		points[i].X, points[i].Y = float64(i), cmplx.Abs(j)
+		phase[i].X, phase[i].Y = float64(i), cmplx.Phase(j)
+		complex[i].X, complex[i].Y = real(j), imag(j)
+	}
+
+	p, err := plot.New()
+	if err != nil {
+		panic(err)
+	}
+	p.Title.Text = "FFT Real"
+	p.X.Label.Text = "X"
+	p.Y.Label.Text = "Y"
+	scatter, err := plotter.NewScatter(points)
+	if err != nil {
+		panic(err)
+	}
+	scatter.Shape = plot.CircleGlyph{}
+	scatter.Radius = vg.Points(1)
+	p.Add(scatter)
+	if err := p.Save(8, 8, "fft_real.png"); err != nil {
+		panic(err)
+	}
+
+	p, err = plot.New()
+	if err != nil {
+		panic(err)
+	}
+	p.Title.Text = "FFT Phase"
+	p.X.Label.Text = "X"
+	p.Y.Label.Text = "Y"
+	scatter, err = plotter.NewScatter(phase)
+	if err != nil {
+		panic(err)
+	}
+	scatter.Shape = plot.CircleGlyph{}
+	scatter.Radius = vg.Points(1)
+	scatter.Color = color.RGBA{0, 0, 255, 255}
+	p.Add(scatter)
+	if err := p.Save(8, 8, "fft_phase.png"); err != nil {
+		panic(err)
+	}
+
+	p, err = plot.New()
+	if err != nil {
+		panic(err)
+	}
+	p.Title.Text = "FFT Complex"
+	p.X.Label.Text = "X"
+	p.Y.Label.Text = "Y"
+	scatter, err = plotter.NewScatter(complex)
+	if err != nil {
+		panic(err)
+	}
+	scatter.Shape = plot.CircleGlyph{}
+	scatter.Radius = vg.Points(1)
+	scatter.Color = color.RGBA{0, 0, 255, 255}
+	p.Add(scatter)
+	if err := p.Save(8, 8, "fft_complex.png"); err != nil {
+		panic(err)
 	}
 
 	labels := make([]int, len(minClusteredData))

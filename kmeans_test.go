@@ -42,7 +42,7 @@ func TestKmeans(t *testing.T) {
 	}
 	threshold := 10
 	// Best Distance for Iris is Canberra Distance
-	labels, err := Kmeans(irisData, 3, CanberraDistance, threshold)
+	labels, _, err := Kmeans(irisData, 3, CanberraDistance, threshold)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -91,30 +91,34 @@ func TestKCmeans(t *testing.T) {
 	}
 	threshold := 1000
 	// Best Distance for Iris is Canberra Distance
-	_, means, err := KCmeans(irisData, len(lines), CanberraDistance, threshold)
+	_, means, err := KCmeans(irisData, len(lines), CanberraDistance, threshold, 0)
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("means = %v\n", len(means))
 }
 
-const POINTS = 256
+const POINTS = 32
 
 func TestKCmeansSynthetic(t *testing.T) {
-	clusters := 10
+	clusters, spacing := 7, 4.0
 	data, points := make([][]float64, clusters * POINTS), make(plotter.XYs, clusters * POINTS)
 
 	for c := 0; c < clusters; c++ {
+		//A, B, C, D := rand.NormFloat64(), rand.NormFloat64(), rand.NormFloat64(), rand.NormFloat64()
+		//x, y := spacing * rand.NormFloat64(), spacing * rand.NormFloat64()
 		for p := 0; p < POINTS; p++ {
 			point := make([]float64, 2)
-			point[0], point[1] = 8 * float64(c) + rand.NormFloat64(), 8 * float64(c) + rand.NormFloat64()
+			point[0], point[1] = spacing * float64(c) + rand.NormFloat64(), spacing * float64(c) + rand.NormFloat64()
+			//point[0], point[1] = x + rand.NormFloat64(), y + rand.NormFloat64()
+			//point[0], point[1] = A * point[0] + B * point[1], C * point[0] + D * point[1]
 			index := POINTS * c + p
 			data[index], points[index].X, points[index].Y = point, point[0], point[1]
 		}
 	}
 
 	threshold := 1000
-	_, means, err := KCmeans(data, 30, EuclideanDistance, threshold)
+	_, means, err := KCmeans(data, 30, EuclideanDistance, threshold, 10)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -134,7 +138,7 @@ func TestKCmeansSynthetic(t *testing.T) {
 	p.Add(scatter)
 	scatter, err = plotter.NewScatter(centerPoints)
 	scatter.Shape = plot.CircleGlyph{}
-	scatter.Radius = vg.Points(4)
+	scatter.Radius = vg.Points(2)
 	scatter.Color = color.RGBA{0, 0, 255, 255}
 	p.Add(scatter)
 	if err := p.Save(8, 8, "synthetic.png"); err != nil {
@@ -142,6 +146,7 @@ func TestKCmeansSynthetic(t *testing.T) {
 	}
 }
 
+// http://cs.joensuu.fi/sipu/datasets/
 func TestKCmeansA1(t *testing.T) {
 	filePath, err := filepath.Abs("data/a1.txt")
 	if err != nil {
@@ -154,7 +159,7 @@ func TestKCmeansA1(t *testing.T) {
 
 	lines := strings.Split(string(content), "\n")
 	lines = lines[:len(lines) - 1]
-	data := make([][]float64, len(lines))
+	data, points := make([][]float64, len(lines)), make(plotter.XYs, len(lines))
 	for ii, line := range lines {
 		line = strings.Trim(line, " ")
 		vector := strings.Split(line, " ")
@@ -173,13 +178,38 @@ func TestKCmeansA1(t *testing.T) {
 				vv++
 			}
 		}
-		data[ii] = floatVector
+		data[ii], points[ii].X, points[ii].Y = floatVector, floatVector[0], floatVector[1]
 	}
 
 	threshold := 1000
-	_, means, err := KCmeans(data, 30, EuclideanDistance, threshold)
+	_, means, err := KCmeans(data, 30, EuclideanDistance, threshold, 10)
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("means = %v\n", len(means))
+
+	p, err := plot.New()
+	p.Title.Text = "A1 Clusters"
+	p.X.Label.Text = "X"
+	p.Y.Label.Text = "Y"
+	scatter, err := plotter.NewScatter(points)
+	scatter.Shape = plot.CircleGlyph{}
+	scatter.Radius = vg.Points(2)
+	p.Add(scatter)
+	_, means, err = Kmeans(data, 20, EuclideanDistance, threshold)
+	if err != nil {
+		log.Fatal(err)
+	}
+	centerPoints := make(plotter.XYs, len(means))
+	for ii := range means {
+		centerPoints[ii].X, centerPoints[ii].Y = means[ii][0], means[ii][1]
+	}
+	scatter, err = plotter.NewScatter(centerPoints)
+	scatter.Shape = plot.CircleGlyph{}
+	scatter.Radius = vg.Points(2)
+	scatter.Color = color.RGBA{0, 0, 255, 255}
+	p.Add(scatter)
+	if err := p.Save(8, 8, "a1.png"); err != nil {
+		panic(err)
+	}
 }
