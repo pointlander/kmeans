@@ -201,10 +201,13 @@ func KCmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thre
 				}
 			}
 
+			/*sigma := make([]float64, len(seeds[c]))*/
 			for _, j := range clusteredData {
 				if j.ClusterNumber == c {
 					for ii, jj := range j.Observation {
-						err = binary.Write(input, binary.LittleEndian, jj - seeds[c][ii])
+						x := jj - seeds[c][ii]
+						//sigma[ii] += x * x
+						err = binary.Write(input, binary.LittleEndian, x)
 						if err != nil {
 							panic(err)
 						}
@@ -221,6 +224,20 @@ func KCmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thre
 					}
 				}
 			}
+
+			/*N := float64(counts[c])
+			for i, j := range sigma {
+				sigma[i] = math.Sqrt(j / N)
+			}
+
+			for i := 0; i < gain * counts[c]; i++ {
+				for _, jj := range sigma {
+					err = binary.Write(input, binary.LittleEndian, 3 * jj * rand.NormFloat64())
+					if err != nil {
+						panic(err)
+					}
+				}
+			}*/
 		}
 
 		in, output := make(chan []byte, 1), &bytes.Buffer{}
@@ -237,6 +254,113 @@ func KCmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thre
 		fmt.Printf("%v %v\n", clusters, complexity)
 		if complexity < min {
 			min, minClusteredData, means = complexity, clusteredData, make([]Observation, len(seeds))
+			for ii := range seeds {
+				means[ii] = make([]float64, len(seeds[ii]))
+				for jj := range seeds[ii] {
+					means[ii][jj] = seeds[ii][jj]
+				}
+			}
+		}
+	}
+
+	labels := make([]int, len(minClusteredData))
+	for ii, jj := range minClusteredData {
+		labels[ii] = jj.ClusterNumber
+	}
+	return labels, means, err
+}
+
+func kc(a []byte) float64 {
+	input, in, output := make([]byte, len(a)), make(chan []byte, 1), &bytes.Buffer{}
+	copy(input, a)
+	in <- input
+	close(in)
+	compress.BijectiveBurrowsWheelerCoder(in).MoveToFrontRunLengthCoder().AdaptiveCoder().Code(output)
+	return float64(output.Len())
+}
+
+func KC2means(rawData [][]float64, k int, distanceFunction DistanceFunction, threshold, gain int) ([]int, []Observation, error) {
+	var minClusteredData []ClusteredObservation
+	var means []Observation
+	var err error
+	min := math.MaxFloat64
+	for clusters := 1; clusters <= k; clusters++ {
+		data := make([]ClusteredObservation, len(rawData))
+		for ii, jj := range rawData {
+			data[ii].Observation = jj
+		}
+		seeds := seed(data, clusters, distanceFunction)
+		clusteredData, _ := kmeans(data, seeds, distanceFunction, threshold)
+
+		counts := make([]int, clusters)
+		for _, jj := range clusteredData {
+			counts[jj.ClusterNumber]++
+		}
+
+		input, synth := &bytes.Buffer{}, &bytes.Buffer{}
+		for c := 0; c < clusters; c++ {
+			/*err := binary.Write(input, binary.LittleEndian, int64(counts[c]))
+			if err != nil {
+				panic(err)
+			}
+
+			for _, jj := range seeds[c] {
+				err = binary.Write(input, binary.LittleEndian, jj)
+				if err != nil {
+					panic(err)
+				}
+			}
+
+			err = binary.Write(synth, binary.LittleEndian, int64(counts[c]))
+			if err != nil {
+				panic(err)
+			}
+
+			for _, jj := range seeds[c] {
+				err = binary.Write(synth, binary.LittleEndian, jj)
+				if err != nil {
+					panic(err)
+				}
+			}*/
+
+			sigma := make([]float64, len(seeds[c]))
+			for _, j := range clusteredData {
+				if j.ClusterNumber == c {
+					for ii, jj := range j.Observation {
+						x := jj - seeds[c][ii]
+						sigma[ii] += x * x
+						err := binary.Write(input, binary.LittleEndian, jj)
+						if err != nil {
+							panic(err)
+						}
+					}
+				}
+			}
+
+			N := float64(counts[c])
+			for i, j := range sigma {
+				sigma[i] = math.Sqrt(j / N)
+			}
+
+			for i := 0; i < 2 * counts[c]; i++ {
+				for ii, jj := range sigma {
+					err := binary.Write(synth, binary.LittleEndian, jj * rand.NormFloat64() + seeds[c][ii])
+					if err != nil {
+						panic(err)
+					}
+				}
+			}
+		}
+
+
+		x, y := kc(input.Bytes()), kc(synth.Bytes())
+		input.Write(synth.Bytes())
+		xy := kc(input.Bytes())
+		NCD := (xy - math.Min(x, y)) / math.Max(x, y)
+
+		fmt.Printf("%v %v\n", clusters, NCD)
+		if NCD < min {
+			min, minClusteredData, means = NCD, clusteredData, make([]Observation, len(seeds))
 			for ii := range seeds {
 				means[ii] = make([]float64, len(seeds[ii]))
 				for jj := range seeds[ii] {
