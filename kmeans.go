@@ -2,18 +2,20 @@ package kmeans
 
 import (
 	"bytes"
-	//"code.google.com/p/lzma"
-	"code.google.com/p/plotinum/plot"
-	"code.google.com/p/plotinum/plotter"
-	"code.google.com/p/plotinum/vg"
 	"encoding/binary"
 	"fmt"
-	"github.com/mjibson/go-dsp/fft"
-	"github.com/pointlander/compress"
 	"image/color"
 	"math"
 	"math/cmplx"
 	"math/rand"
+
+	//"code.google.com/p/lzma"
+	"github.com/gonum/plot"
+	"github.com/gonum/plot/plotter"
+	"github.com/gonum/plot/vg"
+	"github.com/gonum/plot/vg/draw"
+	"github.com/mjibson/go-dsp/fft"
+	"github.com/pointlander/compress"
 )
 
 // Observation: Data Abstraction for an N-dimensional
@@ -216,7 +218,7 @@ func KCmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thre
 					for ii, jj := range j.Observation {
 						x := math.Exp(jj - seeds[c][ii])
 						for i := 0; i < gain; i++ {
-							err = binary.Write(input, binary.LittleEndian, x * rand.Float64())
+							err = binary.Write(input, binary.LittleEndian, x*rand.Float64())
 							if err != nil {
 								panic(err)
 							}
@@ -342,16 +344,15 @@ func KC2means(rawData [][]float64, k int, distanceFunction DistanceFunction, thr
 				sigma[i] = math.Sqrt(j / N)
 			}
 
-			for i := 0; i < 2 * counts[c]; i++ {
+			for i := 0; i < 2*counts[c]; i++ {
 				for ii, jj := range sigma {
-					err := binary.Write(synth, binary.LittleEndian, jj * rand.NormFloat64() + seeds[c][ii])
+					err := binary.Write(synth, binary.LittleEndian, jj*rand.NormFloat64()+seeds[c][ii])
 					if err != nil {
 						panic(err)
 					}
 				}
 			}
 		}
-
 
 		x, y := kc(input.Bytes()), kc(synth.Bytes())
 		input.Write(synth.Bytes())
@@ -417,7 +418,7 @@ func KCMmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thr
 			for _, j := range clusteredData {
 				if j.ClusterNumber == c {
 					for ii, jj := range j.Observation {
-						err = binary.Write(input, binary.LittleEndian, jj - seeds[c][ii])
+						err = binary.Write(input, binary.LittleEndian, jj-seeds[c][ii])
 						if err != nil {
 							panic(err)
 						}
@@ -437,7 +438,7 @@ func KCMmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thr
 		writer.Close()*/
 
 		complexity := int64(output.Len())
-		trace[clusters - 1] = float64(complexity)
+		trace[clusters-1] = float64(complexity)
 		fmt.Printf("%v %v\n", clusters, complexity)
 		if complexity > max {
 			max, minClusteredData, means = complexity, clusteredData, make([]Observation, len(seeds))
@@ -451,7 +452,7 @@ func KCMmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thr
 	}
 
 	f := fft.FFTReal(trace)
-	points, phase, complex := make(plotter.XYs, len(f) - 1), make(plotter.XYs, len(f) - 1), make(plotter.XYs, len(f))
+	points, phase, complex := make(plotter.XYs, len(f)-1), make(plotter.XYs, len(f)-1), make(plotter.XYs, len(f))
 	for i, j := range f[1:] {
 		points[i].X, points[i].Y = float64(i), cmplx.Abs(j)
 		phase[i].X, phase[i].Y = float64(i), cmplx.Phase(j)
@@ -469,7 +470,7 @@ func KCMmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thr
 	if err != nil {
 		panic(err)
 	}
-	scatter.Shape = plot.CircleGlyph{}
+	scatter.Shape = draw.CircleGlyph{}
 	scatter.Radius = vg.Points(1)
 	p.Add(scatter)
 	if err := p.Save(8, 8, "fft_real.png"); err != nil {
@@ -487,7 +488,7 @@ func KCMmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thr
 	if err != nil {
 		panic(err)
 	}
-	scatter.Shape = plot.CircleGlyph{}
+	scatter.Shape = draw.CircleGlyph{}
 	scatter.Radius = vg.Points(1)
 	scatter.Color = color.RGBA{0, 0, 255, 255}
 	p.Add(scatter)
@@ -506,7 +507,7 @@ func KCMmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thr
 	if err != nil {
 		panic(err)
 	}
-	scatter.Shape = plot.CircleGlyph{}
+	scatter.Shape = draw.CircleGlyph{}
 	scatter.Radius = vg.Points(1)
 	scatter.Color = color.RGBA{0, 0, 255, 255}
 	p.Add(scatter)
@@ -581,9 +582,9 @@ func KCSmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thr
 							panic(err)
 						}
 
-						t := math.Acos(x[1]/math.Sqrt(x[0]*x[0]+x[1]*x[1]))
+						t := math.Acos(x[1] / math.Sqrt(x[0]*x[0]+x[1]*x[1]))
 						if t < 0 {
-							t = 2 * math.Pi - t
+							t = 2*math.Pi - t
 						}
 						err = binary.Write(input, binary.LittleEndian, t)
 						if err != nil {
@@ -592,7 +593,7 @@ func KCSmeans(rawData [][]float64, k int, distanceFunction DistanceFunction, thr
 
 						for i := 2; i < width; i++ {
 							r = 0.0
-							for _, j := range x[:i + 1] {
+							for _, j := range x[:i+1] {
 								r += j * j
 							}
 							err = binary.Write(input, binary.LittleEndian, math.Acos(x[i]/math.Sqrt(r)))

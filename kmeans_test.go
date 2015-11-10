@@ -1,9 +1,6 @@
 package kmeans
 
 import (
-	"code.google.com/p/plotinum/plot"
-	"code.google.com/p/plotinum/plotter"
-	"code.google.com/p/plotinum/vg"
 	"fmt"
 	"image/color"
 	"io/ioutil"
@@ -13,6 +10,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/gonum/plot"
+	"github.com/gonum/plot/plotter"
+	"github.com/gonum/plot/vg"
+	"github.com/gonum/plot/vg/draw"
 )
 
 // Test K-Means Algorithm in Iris Dataset
@@ -102,17 +104,17 @@ const POINTS = 32
 
 func TestKCmeansSynthetic(t *testing.T) {
 	clusters, spacing := 7, 4.0
-	data, points := make([][]float64, clusters * POINTS), make(plotter.XYs, clusters * POINTS)
+	data, points := make([][]float64, clusters*POINTS), make(plotter.XYs, clusters*POINTS)
 
 	for c := 0; c < clusters; c++ {
 		//A, B, C, D := rand.NormFloat64(), rand.NormFloat64(), rand.NormFloat64(), rand.NormFloat64()
 		//x, y := spacing * rand.NormFloat64(), spacing * rand.NormFloat64()
 		for p := 0; p < POINTS; p++ {
 			point := make([]float64, 2)
-			point[0], point[1] = spacing * float64(c) + rand.NormFloat64(), spacing * float64(c) + rand.NormFloat64()
+			point[0], point[1] = spacing*float64(c)+rand.NormFloat64(), spacing*float64(c)+rand.NormFloat64()
 			//point[0], point[1] = x + rand.NormFloat64(), y + rand.NormFloat64()
 			//point[0], point[1] = A * point[0] + B * point[1], C * point[0] + D * point[1]
-			index := POINTS * c + p
+			index := POINTS*c + p
 			data[index], points[index].X, points[index].Y = point, point[0], point[1]
 		}
 	}
@@ -133,11 +135,11 @@ func TestKCmeansSynthetic(t *testing.T) {
 	p.X.Label.Text = "X"
 	p.Y.Label.Text = "Y"
 	scatter, err := plotter.NewScatter(points)
-	scatter.Shape = plot.CircleGlyph{}
+	scatter.Shape = draw.CircleGlyph{}
 	scatter.Radius = vg.Points(2)
 	p.Add(scatter)
 	scatter, err = plotter.NewScatter(centerPoints)
-	scatter.Shape = plot.CircleGlyph{}
+	scatter.Shape = draw.CircleGlyph{}
 	scatter.Radius = vg.Points(2)
 	scatter.Color = color.RGBA{0, 0, 255, 255}
 	p.Add(scatter)
@@ -158,7 +160,7 @@ func TestKCmeansA1(t *testing.T) {
 	}
 
 	lines := strings.Split(string(content), "\n")
-	lines = lines[:len(lines) - 1]
+	lines = lines[:len(lines)-1]
 	data, points := make([][]float64, len(lines)), make(plotter.XYs, len(lines))
 	for ii, line := range lines {
 		line = strings.Trim(line, " ")
@@ -193,7 +195,7 @@ func TestKCmeansA1(t *testing.T) {
 	p.X.Label.Text = "X"
 	p.Y.Label.Text = "Y"
 	scatter, err := plotter.NewScatter(points)
-	scatter.Shape = plot.CircleGlyph{}
+	scatter.Shape = draw.CircleGlyph{}
 	scatter.Radius = vg.Points(2)
 	p.Add(scatter)
 	_, means, err = Kmeans(data, 20, EuclideanDistance, threshold)
@@ -205,7 +207,7 @@ func TestKCmeansA1(t *testing.T) {
 		centerPoints[ii].X, centerPoints[ii].Y = means[ii][0], means[ii][1]
 	}
 	scatter, err = plotter.NewScatter(centerPoints)
-	scatter.Shape = plot.CircleGlyph{}
+	scatter.Shape = draw.CircleGlyph{}
 	scatter.Radius = vg.Points(2)
 	scatter.Color = color.RGBA{0, 0, 255, 255}
 	p.Add(scatter)
